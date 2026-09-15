@@ -1,10 +1,17 @@
 name: Build installers
 
 # Native runners per platform: Tauri cannot cross-compile Windows (MSVC) or
-# macOS (Xcode) bundles from Linux. Push a tag (v*) or dispatch manually to
-# get installers for all three OSes as a draft GitHub release.
+# macOS (Xcode) bundles from Linux. Two triggers:
+#   - push a tag (v*)  -> builds and PUBLISHES a release with installers
+#   - manual dispatch  -> set the "tag" input (e.g. v0.1.0) to publish,
+#                         or leave it empty to only build (no release)
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0). Empty = build only, no release."
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -56,9 +63,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "zcode Switch Token ${{ github.ref_name }}"
-          releaseBody: "Installers for Linux (AppImage/deb/rpm), Windows (msi/nsis) and macOS (dmg)."
-          releaseDraft: true
+          # tag pushes use the pushed tag; manual dispatch uses the input
+          tagName: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          releaseName: "zcode Switch Token ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
+          releaseBody: "Installers for Linux (AppImage/deb/rpm), Windows (msi/nsis) and macOS (dmg). Unsigned — expect SmartScreen/Gatekeeper warnings."
+          releaseDraft: false
           prerelease: false
+          # no auto-updater in this app: skip updater manifests (and the
+          # "Signature not found" warning that comes with them)
+          uploadUpdaterJson: false
           args: ${{ matrix.args }}
