@@ -13,7 +13,7 @@ Desktop app (Linux/Windows/macOS) to manage z.ai coding-plan tokens for zcode. I
 ## Commands
 
 - `bun run tauri dev` — full dev app (Vite + Rust shell).
-- `bun run dev` — frontend only in browser (no Tauri shell; `invoke()` calls will fail there).
+- `bun run dev` — frontend only in browser (no Tauri shell; `invoke()` calls will fail there). Use `http://localhost:1420/demo.html` for a browser demo with a mocked IPC bridge (`src/demo/main.ts`, fabricated data — never put real tokens there; README screenshots come from it, `?autoSwitch=1` clicks the real switch button).
 - `bun run tauri build` — release bundle, all targets.
 - Typecheck: `bunx vue-tsc --noEmit` (runs automatically as the first half of `build`).
 - Rust-side check: `cargo check` inside `src-tauri/`.
