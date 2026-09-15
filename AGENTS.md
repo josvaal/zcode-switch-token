@@ -37,5 +37,7 @@ No test, lint, or formatter tooling is configured; `vue-tsc --noEmit` is the onl
 - Vite ignores `src-tauri/**`; Rust changes are rebuilt by `tauri dev` itself, not by Vite reload.
 - Linux + NVIDIA/VM: WebKitGTK's DMABUF renderer produces a black window with `Failed to create GBM buffer`. `main.rs` sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` on Linux (pre-set env vars win if the user needs to override).
 - Linux + view transitions: WebKitGTK 2.52 exposes `startViewTransition` but hangs the whole webview when it runs on the forced legacy renderer — total app freeze. `viewTransition.ts` gates transitions off on Linux (UA check) + feature-detect; do not re-enable there.
+- Linux bundling: the AppImage step fails with `failed to run linuxdeploy` unless user namespaces/FUSE mounting works. Build with `APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=true bun run tauri build`.
+- Cross-compilation is not supported: Windows (MSVC) and macOS (Xcode) bundles must be built on those OSes — `.github/workflows/build.yml` (tauri-action matrix) does it via GitHub Actions on `v*` tags or manual dispatch.
 - Don't remove the `windows_subsystem` attribute in `src-tauri/src/main.rs` (prevents a console window on Windows release).
 - zcode rewrites `config.json` on its own; the app never caches it — always read → modify → write in one command call.

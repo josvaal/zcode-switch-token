@@ -56,4 +56,5 @@ The README screenshots above were captured from that demo (`?autoSwitch=1` click
 
 - **Linux + NVIDIA/VM**: WebKitGTK's DMABUF renderer can produce a black window (`Failed to create GBM buffer`). The app sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` at startup on Linux — a pre-set env var always wins if you need to override it.
 - **Linux + View Transitions**: WebKitGTK exposes `startViewTransition` but can hang the webview on the forced legacy renderer; transitions are therefore disabled on Linux by design (progressive enhancement, never a hard dependency).
+- **Building for all OSes**: Tauri can't cross-compile — Windows and macOS installers are built by GitHub Actions (`.github/workflows/build.yml`, runs on `v*` tags) and attached to a draft release. When bundling the AppImage locally, use `APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=true bun run tauri build`.
 - Vite dev server uses fixed port 1420 (`strictPort: true`) with HMR on 1421.
