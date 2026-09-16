@@ -43,8 +43,12 @@ function ok(msg: string): void {
   console.log(`✔ ${msg}`);
 }
 
-function capture(cmd: string): string {
-  return execSync(cmd, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+function capture(cmd: string, cwd = "."): string {
+  return execSync(cmd, {
+    cwd: resolve(ROOT, cwd),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 function parseArgs(argv: string[]): Opts {
@@ -152,7 +156,8 @@ function bumpAll(o: Opts): void {
   bump(CARGO, o.version, /^version = "[^"]+"/m, "Cargo.toml");
   bump(PKG, o.version, /"version": "[^"]+"/, "package.json");
   try {
-    capture("cargo update -p zcode-switch-token");
+    // Cargo.toml lives in src-tauri/, so cargo must run from there.
+    capture("cargo update -p zcode-switch-token", "src-tauri");
     ok("Cargo.lock refreshed (cargo update)");
   } catch (e) {
     die(`cargo update failed: ${e instanceof Error ? e.message : String(e)}`);
