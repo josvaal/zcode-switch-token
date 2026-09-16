@@ -24,6 +24,8 @@ Desktop app (Linux/Windows/macOS) to manage z.ai coding-plan tokens for zcode. I
 
 No test, lint, or formatter tooling is configured; `vue-tsc --noEmit` is the only automated gate.
 
+- Release: `bun run release X.Y.Z` — bumps all manifests, validates the tag matches the version, commits, tags and pushes (tag push triggers CI). Flags: `--dry-run`, `--no-push`.
+
 ## Architecture
 
 - `src/` — Vue 3 `<script setup>` + TypeScript (`strict`, `noUnusedLocals`, `noUnusedParameters`). Entry: `src/main.ts` → `App.vue` (container/state) → presentational components in `src/components/` (QuotaCard, TokenList, AddTokenForm).

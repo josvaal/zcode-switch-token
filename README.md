@@ -56,6 +56,15 @@ bun run dev
 
 The README screenshots above were captured from that demo (`?autoSwitch=1` clicks the real "Cambiar Token" button after mount).
 
+### Cutting a release
+
+```bash
+bun run release 0.1.2          # bump, validate, commit, tag, push
+bun run release 0.1.2 --dry-run
+```
+
+`bun run release <version>` bumps every manifest (tauri.conf.json, Cargo.toml, package.json, Cargo.lock), validates that the tag matches the new version, commits, tags and pushes — pushing the tag is what triggers CI to build and publish the installers for all platforms.
+
 ## Platform notes
 
 - **Linux + NVIDIA/VM**: WebKitGTK's DMABUF renderer can produce a black window (`Failed to create GBM buffer`). The app sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` at startup on Linux — a pre-set env var always wins if you need to override it.
