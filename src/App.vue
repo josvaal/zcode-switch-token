@@ -2,17 +2,19 @@
 import { computed, onMounted, ref } from "vue";
 import AddTokenForm from "./components/AddTokenForm.vue";
 import QuotaCard from "./components/QuotaCard.vue";
+import TargetSwitch from "./components/TargetSwitch.vue";
 import TokenList from "./components/TokenList.vue";
-import { applyToken, fetchQuota, loadState, saveState, zcodePath } from "./lib/api";
+import { applyToken, fetchQuota, loadState, saveState, targetPaths } from "./lib/api";
 import { parseQuota } from "./lib/quota";
-import type { TokenEntry } from "./lib/types";
+import type { AgentPath, TokenEntry } from "./lib/types";
 import { withViewTransition } from "./lib/viewTransition";
 
-const state = ref<{ tokens: TokenEntry[]; activeId: string | null }>({
+const state = ref<{ tokens: TokenEntry[]; activeId: string | null; targets: { zcode: boolean; opencode: boolean } }>({
   tokens: [],
   activeId: null,
+  targets: { zcode: true, opencode: true },
 });
-const zPath = ref("");
+const agentPaths = ref<AgentPath[]>([]);
 const quotaLoading = ref(false);
 const quotaError = ref<string | null>(null);
 const quotaRaw = ref<unknown>(null);
@@ -29,8 +31,16 @@ const activeLabel = computed(() => activeToken.value?.label ?? null);
 const parsedQuota = computed(() =>
   quotaRaw.value === null ? null : parseQuota(quotaRaw.value),
 );
+const anyTargetOn = computed(() => state.value.targets.zcode || state.value.targets.opencode);
+const canSwitch = computed(() => state.value.tokens.length > 0 && anyTargetOn.value);
+const enabledPaths = computed(() =>
+  agentPaths.value
+    .filter((p) => (p.agent === "zcode" ? state.value.targets.zcode : state.value.targets.opencode))
+    .map((p) => p.path),
+);
 const activeHint = computed(() => {
   if (state.value.tokens.length === 0) return "Agrega al menos un token para empezar.";
+  if (!anyTargetOn.value) return "Elige al menos un agente (ZCode u OpenCode) para aplicar el switch.";
   if (!activeToken.value) return "Elige un token de la lista para activarlo.";
   return `Activo: ${activeToken.value.label} — "Cambiar Token" rota al siguiente de la lista.`;
 });
@@ -48,7 +58,11 @@ function newId(): string {
 }
 
 async function persist(): Promise<void> {
-  await saveState({ tokens: state.value.tokens, activeId: state.value.activeId });
+  await saveState({
+    tokens: state.value.tokens,
+    activeId: state.value.activeId,
+    targets: state.value.targets,
+  });
 }
 
 async function refreshQuota(): Promise<void> {
@@ -77,14 +91,23 @@ async function refreshQuota(): Promise<void> {
 }
 
 async function activate(entry: TokenEntry): Promise<void> {
+  if (!anyTargetOn.value) {
+    showStatus("err", "Elige al menos un agente (ZCode u OpenCode) para aplicar el token.");
+    return;
+  }
   busyId.value = entry.id;
   try {
-    const result = await applyToken(entry.token); // IPC first, no DOM inside
+    const result = await applyToken(entry.token, state.value.targets); // IPC first, no DOM inside
     await withViewTransition(() => {
       state.value.activeId = entry.id;
     });
     await persist();
-    showStatus("ok", `Token aplicado en ${result.path}`);
+    showStatus(
+      "ok",
+      `Token aplicado en ${result.applied.map((t) => t.agent).join(" + ")}: ${result.applied
+        .map((t) => t.path)
+        .join("  ·  ")}`,
+    );
     await refreshQuota();
   } catch (e) {
     showStatus("err", `No se pudo aplicar el token: ${String(e)}`);
@@ -93,9 +116,14 @@ async function activate(entry: TokenEntry): Promise<void> {
   }
 }
 
+function toggleTarget(agent: "zcode" | "opencode"): void {
+  state.value.targets = { ...state.value.targets, [agent]: !state.value.targets[agent] };
+  void persist();
+}
+
 async function changeToken(): Promise<void> {
   const tokens = state.value.tokens;
-  if (tokens.length === 0 || busy.value) return;
+  if (tokens.length === 0 || busy.value || !anyTargetOn.value) return;
   busy.value = true;
   try {
     const currentIndex = tokens.findIndex((t) => t.id === state.value.activeId);
@@ -150,9 +178,13 @@ async function removeToken(id: string): Promise<void> {
 
 onMounted(async () => {
   try {
-    const [loaded, path] = await Promise.all([loadState(), zcodePath()]);
-    state.value = { tokens: loaded.tokens, activeId: loaded.activeId };
-    zPath.value = path;
+    const [loaded, paths] = await Promise.all([loadState(), targetPaths()]);
+    state.value = {
+      tokens: loaded.tokens,
+      activeId: loaded.activeId,
+      targets: loaded.targets ?? { zcode: true, opencode: true },
+    };
+    agentPaths.value = paths;
     if (activeToken.value) await refreshQuota();
   } catch (e) {
     showStatus("err", `No se pudo cargar el estado: ${String(e)}`);
@@ -164,7 +196,11 @@ onMounted(async () => {
   <main class="shell">
     <header class="topbar">
       <span class="pill-badge"><span class="dot ok" /> zcode switcher</span>
-      <span v-if="zPath" class="path-hint" :title="zPath">{{ zPath }}</span>
+      <span
+        v-if="enabledPaths.length > 0"
+        class="path-hint"
+        :title="enabledPaths.join('  ·  ')"
+      >{{ enabledPaths.join("  ·  ") }}</span>
     </header>
 
     <QuotaCard
@@ -196,9 +232,10 @@ onMounted(async () => {
     </section>
 
     <footer class="actions">
+      <TargetSwitch :targets="state.targets" @toggle="toggleTarget" />
       <button
         class="btn-primary big"
-        :disabled="state.tokens.length === 0 || busy"
+        :disabled="!canSwitch || busy"
         @click="changeToken"
       >
         <span v-if="busy" class="spinner" />

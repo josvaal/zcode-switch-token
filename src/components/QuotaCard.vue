@@ -36,7 +36,7 @@ function percentText(percent: number | null): string {
     <p v-if="error" class="quota-error">{{ error }}</p>
 
     <div v-else-if="parsed && parsed.windows.length > 0" class="windows">
-      <div v-for="w in parsed.windows" :key="w.label" class="window">
+      <div v-for="(w, i) in parsed.windows" :key="i" class="window">
         <div class="window-row">
           <span class="window-label">{{ w.label }}</span>
           <span class="window-percent">{{ percentText(w.percent) }}</span>

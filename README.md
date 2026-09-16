@@ -14,23 +14,23 @@ Store one or more tokens, check your plan's quota usage at a glance, and hot-swa
 
 ## Features
 
-- **Multi-token**: add as many z.ai tokens as you need; the list persists in the app's own config (never inside zcode's).
-- **Cambiar Token**: one click rotates round-robin to the next configured token and applies it.
+- **Multi-token**: add as many z.ai tokens as you need; the list persists in the app's own config (never inside the agents' configs).
+- **Multi-agent**: choose where the switch applies — ZCode, OpenCode, or both. Your choice persists.
+- **Cambiar Token**: one click rotates round-robin to the next configured token and applies it to the enabled agents.
 - **Quota card**: live usage from `GET https://api.z.ai/api/monitor/usage/quota/limit` (`Authorization: Bearer $TOKEN`), fetched Rust-side (reqwest + rustls) to avoid webview CORS. Unknown response shapes fall back to a raw JSON view.
-- **Safe config writes**: reads zcode's `config.json` → modifies only the token fields → writes atomically (temp file + rename), keeping a one-shot `config.json.bak` backup. Everything else in the config is preserved.
+- **Safe config writes**: reads each config → modifies only the token fields → writes atomically (temp file + rename), keeping a one-shot `.bak` backup. Everything else is preserved.
 - **Native View Transitions** on supported webviews (Windows / macOS), instant updates elsewhere.
 
 ## How it works
 
-The active token is written into zcode's own config file, resolved from the user home directory on each platform:
+The active token is written into the credential store of each enabled agent, resolved from the user home directory on every platform:
 
-| OS | zcode config path |
-| --- | --- |
-| Linux | `/home/$USER/.zcode/v2/config.json` |
-| Windows | `C:\Users\$USER\.zcode\v2\config.json` |
-| macOS | `/Users/$USER/.zcode/v2/config.json` |
+| Agent | Credential store | What changes |
+| --- | --- | --- |
+| ZCode | `~/.zcode/v2/config.json` (`C:\Users\$USER\…`, `/Users/$USER/…`) | `provider.builtin:zai.options.apiKey` + `provider.builtin:zai-coding-plan.options.apiKey` |
+| OpenCode | `~/.local/share/opencode/auth.json` (same on all OSes — it's what `opencode auth login` writes) | `zai-coding-plan.key` + `zai.key` |
 
-The key is written to both `provider.builtin:zai.options.apiKey` and `provider.builtin:zai-coding-plan.options.apiKey` (and stale `systemDisabledReason` flags are cleared), so the switch takes effect no matter which provider zcode resolves. zcode rewrites this file on its own, so the app never caches it — every switch is a fresh read → modify → write cycle.
+The key is written to both provider entries on each agent (and stale `systemDisabledReason` flags are cleared on zcode), so the switch takes effect no matter which provider the agent resolves. Agents rewrite these files on their own, so the app never caches them — every switch is a fresh read → modify → write cycle.
 
 Token list lives in the app config dir (`tokens.json`, mode `0600` on Unix). Tokens are never logged and never leave your machine except to the official z.ai quota endpoint.
 

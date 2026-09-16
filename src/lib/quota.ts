@@ -11,11 +11,22 @@ export interface ParsedQuota {
 }
 
 const PERCENT_KEY = /percent|ratio|pct/i;
-const LIMIT_KEY = /(^|_)(limit|total|max|quota|allowance|cap)($|_)/i;
-const USED_KEY = /^(used|usage|current|consumed|spent|value)(_|$)/i;
+// No trailing word boundary: the real payload uses camelCase names like
+// "totalAmount" / "creditLimit", which a trailing ($|_) would never match.
+const LIMIT_KEY = /(^|_)(limit|total|max|quota|allowance|cap)/i;
+const USED_KEY = /^(used|usage|current|consumed|spent|value)/i;
 const REMAIN_KEY = /remain|left($|_)/i;
-const LABEL_KEY = /^(name|type|window|timeWindow|time_window|unit|timeUnit|time_unit|plan|level|model|tier)$/i;
+const LABEL_KEY =
+  /^(name|type|window|timeWindow|time_window|timeUnit|time_unit|unit|period|cycle|interval|plan|level|model|tier)$/i;
 const RESET_KEY = /reset|expire|expiry|end_?time|refresh_?time/i;
+
+/** Uppercase API codes get a readable Spanish label; anything else is humanized. */
+const FRIENDLY_LABELS: Record<string, string> = {
+  CREDIT_LIMIT: "Crédito del plan",
+  PROMPT_LIMIT: "Límite de prompts",
+  TOKEN_LIMIT: "Límite de tokens",
+  WEEKLY: "Ventana semanal",
+};
 
 function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -31,16 +42,27 @@ function clampPercent(n: number | null): number | null {
   return Math.max(0, Math.min(100, n));
 }
 
-function formatCount(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(abs % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (abs >= 10_000) return `${Math.round(n / 1000)}k`;
+function formatExact(n: number): string {
   return n.toLocaleString("en-US");
+}
+
+function humanizeLabel(code: string): string {
+  const friendly = FRIENDLY_LABELS[code.toUpperCase()];
+  if (friendly) return friendly;
+  const words = code.replace(/[_-]+/g, " ").trim();
+  if (words === "") return code;
+  return words
+    .split(" ")
+    .map((w) => (w.length > 2 ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
+    .join(" ");
 }
 
 function labelOf(rec: Record<string, unknown>, fallback: string): string {
   const key = Object.keys(rec).find((k) => LABEL_KEY.test(k) && typeof rec[k] === "string");
-  if (key) return rec[key] as string;
+  if (key) {
+    const raw = (rec[key] as string).trim();
+    if (raw !== "") return humanizeLabel(raw);
+  }
   return fallback;
 }
 
@@ -63,22 +85,24 @@ function detailOf(
   limit: number | null,
   remain: number | null,
 ): string | null {
-  if (used !== null && limit !== null) return `${formatCount(used)} de ${formatCount(limit)}`;
+  // Full numbers on both sides: "120,000 de 1,500,000" instead of "quedan 120k".
+  if (used !== null && limit !== null) return `${formatExact(used)} de ${formatExact(limit)}`;
   if (remain !== null && limit !== null)
-    return `quedan ${formatCount(remain)} de ${formatCount(limit)}`;
-  if (remain !== null) return `quedan ${formatCount(remain)}`;
-  if (used !== null) return `${formatCount(used)} usado`;
+    return `quedan ${formatExact(remain)} de ${formatExact(limit)}`;
+  if (remain !== null) return `quedan ${formatExact(remain)}`;
+  if (used !== null) return `${formatExact(used)} usados`;
   return null;
 }
 
 /**
- * The z.ai quota endpoint response shape is not documented/verified, so this
- * parser walks the payload defensively: it promotes any object that carries a
+ * The z.ai quota endpoint response shape is not documented, so this parser
+ * walks the payload defensively: it promotes any object that carries a
  * percent-like value or a used/limit (or remain/limit) pair into a window,
- * and falls back to the raw JSON view in the UI when nothing matches.
+ * and the UI falls back to a raw JSON view when nothing matches.
  */
 export function parseQuota(raw: unknown): ParsedQuota {
   const windows: QuotaWindow[] = [];
+  const labelSeen = new Map<string, number>();
   visit(raw, 0);
 
   let errorMessage: string | null = null;
@@ -106,7 +130,10 @@ export function parseQuota(raw: unknown): ParsedQuota {
     const usedKey = keys.find((k) => USED_KEY.test(k) && toNumber(rec[k]) !== null);
     const remainKey = keys.find((k) => REMAIN_KEY.test(k) && toNumber(rec[k]) !== null);
 
-    if (pctKey !== undefined || (limitKey !== undefined && (usedKey !== undefined || remainKey !== undefined))) {
+    if (
+      pctKey !== undefined ||
+      (limitKey !== undefined && (usedKey !== undefined || remainKey !== undefined))
+    ) {
       let percent: number | null = pctKey !== undefined ? toNumber(rec[pctKey]) : null;
       if (percent !== null && pctKey !== undefined && percent <= 1 && /ratio/i.test(pctKey)) {
         percent *= 100;
@@ -118,8 +145,14 @@ export function parseQuota(raw: unknown): ParsedQuota {
         if (used !== null) percent = (used / limit) * 100;
         else if (remain !== null) percent = ((limit - remain) / limit) * 100;
       }
+
+      let label = labelOf(rec, `Ventana ${windows.length + 1}`);
+      const seen = labelSeen.get(label) ?? 0;
+      labelSeen.set(label, seen + 1);
+      if (seen > 0) label = `${label} (${seen + 1})`;
+
       windows.push({
-        label: labelOf(rec, `Ventana ${windows.length + 1}`),
+        label,
         percent: clampPercent(percent),
         detail: detailOf(used, limit, remain),
         resetAt: resetOf(rec),

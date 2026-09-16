@@ -13,6 +13,11 @@ const QUOTA_URL: &str = "https://api.z.ai/api/monitor/usage/quota/limit";
 /// this list if zcode changes its provider ids.
 const ZCODE_PROVIDER_IDS: &[&str] = &["builtin:zai", "builtin:zai-coding-plan"];
 
+/// OpenCode auth.json provider ids that receive the active token (the store
+/// written by `opencode auth login` / `/connect`). "zai-coding-plan" is the
+/// GLM Coding Plan entry, "zai" the pay-per-use API one.
+const OPENCODE_PROVIDER_IDS: &[&str] = &["zai-coding-plan", "zai"];
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TokenEntry {
@@ -21,18 +26,50 @@ pub struct TokenEntry {
     pub token: String,
 }
 
+/// Which coding agents the active token is applied to.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SwitchTargets {
+    pub zcode: bool,
+    pub opencode: bool,
+}
+
+impl Default for SwitchTargets {
+    fn default() -> Self {
+        Self {
+            zcode: true,
+            opencode: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppState {
     pub tokens: Vec<TokenEntry>,
     pub active_id: Option<String>,
+    pub targets: SwitchTargets,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentPath {
+    pub agent: String,
+    pub path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppliedTarget {
+    pub agent: String,
+    pub path: String,
+    pub backup_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyResult {
-    pub path: String,
-    pub backup_path: Option<String>,
+    pub applied: Vec<AppliedTarget>,
 }
 
 /// zcode config location per OS (resolved from the user home directory):
@@ -43,6 +80,19 @@ fn zcode_config_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir()
         .ok_or_else(|| "could not resolve the user home directory".to_string())?;
     Ok(home.join(".zcode").join("v2").join("config.json"))
+}
+
+/// OpenCode credential store (same XDG-style location on all platforms,
+/// written by `opencode auth login` / `/connect`):
+///   <home>/.local/share/opencode/auth.json
+fn opencode_auth_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| "could not resolve the user home directory".to_string())?;
+    Ok(home
+        .join(".local")
+        .join("share")
+        .join("opencode")
+        .join("auth.json"))
 }
 
 fn state_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -68,6 +118,24 @@ fn write_json_atomic(path: &PathBuf, value: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn read_json_or_empty(path: &PathBuf, what: &str) -> Result<Value, String> {
+    if !path.exists() {
+        return Ok(json!({}));
+    }
+    let raw = fs::read_to_string(path)
+        .map_err(|e| format!("could not read {} ({}): {e}", what, path.display()))?;
+    serde_json::from_str(&raw).map_err(|e| format!("{} is not valid JSON: {e}", what))
+}
+
+fn backup(path: &PathBuf) -> Result<Option<String>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let bak = path.with_extension("json.bak");
+    fs::copy(path, &bak).map_err(|e| format!("could not back up {}: {e}", path.display()))?;
+    Ok(Some(bak.display().to_string()))
+}
+
 #[tauri::command]
 async fn load_state(app: tauri::AppHandle) -> Result<AppState, String> {
     let path = state_file_path(&app)?;
@@ -87,19 +155,24 @@ async fn save_state(app: tauri::AppHandle, state: AppState) -> Result<(), String
 }
 
 #[tauri::command]
-async fn zcode_path() -> Result<String, String> {
-    zcode_config_path().map(|p| p.display().to_string())
+async fn target_paths() -> Result<Vec<AgentPath>, String> {
+    let zcode = zcode_config_path()?.display().to_string();
+    let opencode = opencode_auth_path()?.display().to_string();
+    Ok(vec![
+        AgentPath {
+            agent: "zcode".into(),
+            path: zcode,
+        },
+        AgentPath {
+            agent: "opencode".into(),
+            path: opencode,
+        },
+    ])
 }
 
-/// Write `token` into zcode's config without touching anything else.
+/// Write the token into zcode's config without touching anything else.
 /// A one-shot `config.json.bak` backup is kept from the previous version.
-#[tauri::command]
-async fn apply_token(token: String) -> Result<ApplyResult, String> {
-    let token = token.trim().to_string();
-    if token.is_empty() {
-        return Err("the token is empty".into());
-    }
-
+fn apply_zcode(token: &str) -> Result<AppliedTarget, String> {
     let path = zcode_config_path()?;
     let parent = path
         .parent()
@@ -107,25 +180,12 @@ async fn apply_token(token: String) -> Result<ApplyResult, String> {
     fs::create_dir_all(parent)
         .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
 
-    let mut config: Value = if path.exists() {
-        let raw = fs::read_to_string(&path)
-            .map_err(|e| format!("could not read {}: {e}", path.display()))?;
-        serde_json::from_str(&raw)
-            .map_err(|e| format!("zcode config is not valid JSON: {e}"))?
-    } else {
-        json!({})
-    };
-
-    let mut backup_path = None;
-    if path.exists() {
-        let bak = path.with_extension("json.bak");
-        fs::copy(&path, &bak).map_err(|e| format!("could not back up config: {e}"))?;
-        backup_path = Some(bak.display().to_string());
-    }
+    let mut config = read_json_or_empty(&path, "zcode config")?;
+    let backup_path = backup(&path)?;
 
     let root = config
         .as_object_mut()
-        .ok_or_else(|| "config root is not a JSON object".to_string())?;
+        .ok_or_else(|| "zcode config root is not a JSON object".to_string())?;
     let providers = root
         .entry("provider".to_string())
         .or_insert_with(|| Value::Object(Map::new()));
@@ -146,17 +206,78 @@ async fn apply_token(token: String) -> Result<ApplyResult, String> {
         options
             .as_object_mut()
             .ok_or_else(|| format!("provider \"{id}\" options is not a JSON object"))?
-            .insert("apiKey".to_string(), Value::String(token.clone()));
+            .insert("apiKey".to_string(), Value::String(token.to_string()));
         // Drop stale auth flags so zcode does not keep the provider disabled.
         entry.remove("systemDisabledReason");
     }
 
     write_json_atomic(&path, &config)?;
-
-    Ok(ApplyResult {
+    Ok(AppliedTarget {
+        agent: "zcode".into(),
         path: path.display().to_string(),
         backup_path,
     })
+}
+
+/// Write the token into OpenCode's credential store (auth.json). Only the
+/// known z.ai provider entries are touched; everything else is preserved.
+fn apply_opencode(token: &str) -> Result<AppliedTarget, String> {
+    let path = opencode_auth_path()?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "invalid opencode auth path".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+
+    let mut config = read_json_or_empty(&path, "opencode auth")?;
+    let backup_path = backup(&path)?;
+
+    let root = config
+        .as_object_mut()
+        .ok_or_else(|| "opencode auth root is not a JSON object".to_string())?;
+
+    for id in OPENCODE_PROVIDER_IDS {
+        let entry = root
+            .entry((*id).to_string())
+            .or_insert_with(|| json!({ "type": "api" }));
+        let entry = entry
+            .as_object_mut()
+            .ok_or_else(|| format!("auth entry \"{id}\" is not a JSON object"))?;
+        // Preserve an existing auth type (e.g. oauth) if the entry had one.
+        entry
+            .entry("type".to_string())
+            .or_insert_with(|| Value::String("api".into()));
+        entry.insert("key".to_string(), Value::String(token.to_string()));
+    }
+
+    write_json_atomic(&path, &config)?;
+    Ok(AppliedTarget {
+        agent: "opencode".into(),
+        path: path.display().to_string(),
+        backup_path,
+    })
+}
+
+/// Apply `token` to every agent selected in `targets`.
+#[tauri::command]
+async fn apply_token(token: String, targets: SwitchTargets) -> Result<ApplyResult, String> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err("the token is empty".into());
+    }
+    if !targets.zcode && !targets.opencode {
+        return Err("no target agent selected".into());
+    }
+
+    let mut applied = Vec::new();
+    if targets.zcode {
+        applied.push(apply_zcode(&token)?);
+    }
+    if targets.opencode {
+        applied.push(apply_opencode(&token)?);
+    }
+
+    Ok(ApplyResult { applied })
 }
 
 #[tauri::command]
@@ -193,7 +314,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_state,
             save_state,
-            zcode_path,
+            target_paths,
             apply_token,
             fetch_quota
         ])

@@ -2,14 +2,14 @@
 // exercised (and screenshotted) without the Tauri shell. Production builds
 // never import this module — only demo.html references it. All data here is
 // fabricated; never put real tokens in this file.
-import type { AppState, ApplyResult } from "../lib/types";
+import type { AgentPath, AppState, ApplyResult, SwitchTargets } from "../lib/types";
 
 type InvokeArgs = Record<string, unknown> | undefined;
 
 interface QuotaWindow {
-  name: string;
-  used: number;
-  limit: number;
+  type: string;
+  usageAmount: number;
+  totalAmount: number;
   resetTime: string;
 }
 
@@ -38,9 +38,13 @@ const state: AppState = {
     },
   ],
   activeId: "demo-token-1",
+  targets: { zcode: true, opencode: true },
 };
 
-const DEMO_PATH = "/home/demo/.zcode/v2/config.json";
+const PATHS: AgentPath[] = [
+  { agent: "zcode", path: "/home/demo/.zcode/v2/config.json" },
+  { agent: "opencode", path: "/home/demo/.local/share/opencode/auth.json" },
+];
 
 const quotaByToken: Record<string, QuotaResponse> = {
   "zai_7f3a9c2e8b1d4f6a0e5c8b2d7f9a1c4e": {
@@ -48,8 +52,18 @@ const quotaByToken: Record<string, QuotaResponse> = {
     code: 200,
     data: {
       windows: [
-        { name: "Ventana de 5 horas", used: 328, limit: 1200, resetTime: "15/9 20:00" },
-        { name: "Ventana semanal", used: 1840, limit: 6000, resetTime: "18/9 00:00" },
+        {
+          type: "CREDIT_LIMIT",
+          usageAmount: 328000,
+          totalAmount: 1200000,
+          resetTime: "15/9 20:00",
+        },
+        {
+          type: "PROMPT_LIMIT",
+          usageAmount: 1840,
+          totalAmount: 6000,
+          resetTime: "18/9 00:00",
+        },
       ],
     },
   },
@@ -58,8 +72,18 @@ const quotaByToken: Record<string, QuotaResponse> = {
     code: 200,
     data: {
       windows: [
-        { name: "Ventana de 5 horas", used: 74, limit: 1200, resetTime: "15/9 21:30" },
-        { name: "Ventana semanal", used: 512, limit: 6000, resetTime: "18/9 00:00" },
+        {
+          type: "CREDIT_LIMIT",
+          usageAmount: 74000,
+          totalAmount: 1200000,
+          resetTime: "15/9 21:30",
+        },
+        {
+          type: "PROMPT_LIMIT",
+          usageAmount: 512,
+          totalAmount: 6000,
+          resetTime: "18/9 00:00",
+        },
       ],
     },
   },
@@ -68,8 +92,18 @@ const quotaByToken: Record<string, QuotaResponse> = {
     code: 200,
     data: {
       windows: [
-        { name: "Ventana de 5 horas", used: 1102, limit: 1200, resetTime: "15/9 19:15" },
-        { name: "Ventana semanal", used: 4380, limit: 6000, resetTime: "18/9 00:00" },
+        {
+          type: "CREDIT_LIMIT",
+          usageAmount: 1102000,
+          totalAmount: 1200000,
+          resetTime: "15/9 19:15",
+        },
+        {
+          type: "PROMPT_LIMIT",
+          usageAmount: 4380,
+          totalAmount: 6000,
+          resetTime: "18/9 00:00",
+        },
       ],
     },
   },
@@ -79,19 +113,26 @@ const quotaByToken: Record<string, QuotaResponse> = {
   invoke: async (cmd: string, args?: InvokeArgs): Promise<unknown> => {
     switch (cmd) {
       case "load_state":
-        return { tokens: state.tokens, activeId: state.activeId };
-      case "save_state":
+        return {
+          tokens: state.tokens,
+          activeId: state.activeId,
+          targets: state.targets,
+        };
+      case "save_state": {
+        const next = args as { state: AppState };
+        state.targets = next.state.targets;
         return undefined;
-      case "zcode_path":
-        return DEMO_PATH;
+      }
+      case "target_paths":
+        return PATHS;
       case "apply_token": {
-        const token = String((args as { token: string }).token);
+        const { token, targets } = args as { token: string; targets: SwitchTargets };
         const found = state.tokens.find((t) => t.token === token);
         if (found) state.activeId = found.id;
-        const result: ApplyResult = {
-          path: DEMO_PATH,
-          backupPath: `${DEMO_PATH}.bak`,
-        };
+        const applied = PATHS.filter((p) =>
+          p.agent === "zcode" ? targets.zcode : targets.opencode,
+        ).map((p) => ({ ...p, backupPath: `${p.path}.bak` }));
+        const result: ApplyResult = { applied };
         return result;
       }
       case "fetch_quota": {
