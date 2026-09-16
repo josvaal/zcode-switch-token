@@ -89,16 +89,23 @@ function tagExistsOnOrigin(tag: string): boolean {
   }
 }
 
-/** Replace only the first occurrence; die if the current version is not found. */
-function bump(path: string, current: string, next: string, pattern: RegExp, label: string): void {
+/**
+ * Replace the first version-like match in the file. Each manifest carries its
+ * own current version (they can drift, e.g. package.json was not bumped in
+ * early releases), so we bump whatever we find instead of expecting the
+ * global current version.
+ */
+function bump(path: string, next: string, pattern: RegExp, label: string): void {
   const full = join(ROOT, path);
   const src = readFileSync(full, "utf8");
-  if (!src.includes(current)) {
-    die(`${label}: expected version "${current}" not found — was the file already bumped?`);
+  const found = src
+    .match(pattern)?.[0]
+    ?.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/)?.[0];
+  if (found === undefined) {
+    die(`${label}: could not find a version to replace.`);
   }
-  const bumped = src.replace(pattern, (match) => match.replace(current, next));
-  writeFileSync(full, bumped);
-  ok(`${label}: ${current} -> ${next}`);
+  writeFileSync(full, src.replace(pattern, (match) => match.replace(found, next)));
+  ok(`${label}: ${found} -> ${next}`);
 }
 
 function preflight(o: Opts): string {
@@ -140,10 +147,10 @@ function preflight(o: Opts): string {
   return current;
 }
 
-function bumpAll(current: string, o: Opts): void {
-  bump(CONF, current, o.version, /"version": "[^"]+"/, "tauri.conf.json");
-  bump(CARGO, current, o.version, /^version = "[^"]+"/m, "Cargo.toml");
-  bump(PKG, current, o.version, /"version": "[^"]+"/, "package.json");
+function bumpAll(o: Opts): void {
+  bump(CONF, o.version, /"version": "[^"]+"/, "tauri.conf.json");
+  bump(CARGO, o.version, /^version = "[^"]+"/m, "Cargo.toml");
+  bump(PKG, o.version, /"version": "[^"]+"/, "package.json");
   try {
     capture("cargo update -p zcode-switch-token");
     ok("Cargo.lock refreshed (cargo update)");
@@ -190,7 +197,7 @@ function release(o: Opts): void {
     return;
   }
 
-  bumpAll(current, o);
+  bumpAll(o);
   validateTagMatchesVersion(o);
 
   capture(`git add ${RELEASE_FILES.join(" ")}`);
