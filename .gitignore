@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Mobile icon sets (regenerate with: bun run tauri icon assets/zcode-switcher-logo.png)
+src-tauri/icons/android/
+src-tauri/icons/ios/

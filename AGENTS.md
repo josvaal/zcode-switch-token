@@ -10,6 +10,8 @@ Desktop app (Linux/Windows/macOS) to manage z.ai coding-plan tokens for zcode. I
 - "Cambiar Token" rotates round-robin to the next configured token and applies it.
 - UI style: dark "AI" aesthetic — near-black background, neon purple/blue gradient glows, pill-shaped glowing buttons, soft glass cards.
 
+- App identity: `productName`/window title is "ZCode Switcher" (bundles + desktop entry); the Tauri identifier and internal binary remain `com.josval.zcode-switch-token` / `zcode-switch-token` — changing the identifier moves the token storage dir. Icons: regenerate the whole set with `bun run tauri icon assets/zcode-switcher-logo.png`; `Cargo.toml` `description` feeds the deb/metadata `Comment`, keep it in sync.
+
 ## Commands
 
 - `bun run tauri dev` — full dev app (Vite + Rust shell).

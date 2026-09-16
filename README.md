@@ -1,4 +1,8 @@
-# zcode Switch Token
+# ZCode Switcher
+
+<p align="center">
+  <img src="assets/zcode-switcher-logo.png" width="140" alt="ZCode Switcher logo" />
+</p>
 
 Desktop manager (Linux / Windows / macOS) for your **z.ai coding-plan** tokens, built with Tauri 2 + Vue 3 + TypeScript.
 

@@ -163,7 +163,7 @@ onMounted(async () => {
 <template>
   <main class="shell">
     <header class="topbar">
-      <span class="pill-badge"><span class="dot ok" /> zcode switch token</span>
+      <span class="pill-badge"><span class="dot ok" /> zcode switcher</span>
       <span v-if="zPath" class="path-hint" :title="zPath">{{ zPath }}</span>
     </header>
 
