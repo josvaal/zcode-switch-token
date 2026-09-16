@@ -1,6 +1,6 @@
 [package]
 name = "zcode-switch-token"
-version = "0.1.0"
+version = "0.1.1"
 description = "Manage and switch z.ai coding-plan tokens for zcode"
 authors = ["Josval"]
 edition = "2021"
