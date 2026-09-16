@@ -65,7 +65,7 @@ jobs:
         with:
           # tag pushes use the pushed tag; manual dispatch uses the input
           tagName: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-          releaseName: "zcode Switch Token ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
+          releaseName: "ZCode Switcher ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
           releaseBody: "Installers for Linux (AppImage/deb/rpm), Windows (msi/nsis) and macOS (dmg). Unsigned — expect SmartScreen/Gatekeeper warnings."
           releaseDraft: false
           prerelease: false
